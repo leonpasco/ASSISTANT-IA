@@ -1,0 +1,18 @@
+// Remplace "votre_clé_api_ici" par la clé API que tu as obtenue
+const apiKey = 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;
+
+// Exemple d'appel API
+fetch('https://api.exemple.com/data', {
+    method: 'GET',
+    headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+    }
+})
+.then(response => response.json())
+.then(data => {
+    console.log('Données reçues de l\'API:', data);
+})
+.catch(error => {
+    console.error('Erreur avec l\'API:', error);
+});
