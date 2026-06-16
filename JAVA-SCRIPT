@@ -1,18 +1,130 @@
-// Remplace "votre_clé_api_ici" par la clé API que tu as obtenue
-const apiKey = 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;
+from flask import Flask, request, jsonify
+import requests
+import os
+from datetime import datetime
 
-// Exemple d'appel API
-fetch('https://api.exemple.com/data', {
-    method: 'GET',
-    headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
+app = Flask(__name__)
+
+# Récupération des variables d'environnement (Render va les remplir)
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "TON_TOKEN_PAR_DEFAUT")
+CHAT_ID = os.environ.get("CHAT_ID", "TON_CHAT_ID_PAR_DEFAUT")
+
+TELEGRAM_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+def send_telegram(text):
+    """Envoie le message à Telegram"""
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
     }
-})
-.then(response => response.json())
-.then(data => {
-    console.log('Données reçues de l\'API:', data);
-})
-.catch(error => {
-    console.error('Erreur avec l\'API:', error);
-});
+    try:
+        response = requests.post(TELEGRAM_URL, json=payload, timeout=10)
+        print(f"Telegram response: {response.status_code}")
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Erreur: {e}")
+        return False
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Point d'entrée pour TradingView"""
+    try:
+        # TradingView envoie du JSON ou du texte
+        if request.is_json:
+            data = request.json
+        else:
+            data = {"message": request.data.decode('utf-8')}
+        
+        print(f"Données reçues: {data}")
+        
+        # Extraction
+        message = data.get('message', str(data))
+        
+        # Formatage stylé
+        formatted = format_message(message, data)
+        
+        # Envoi Telegram
+        success = send_telegram(formatted)
+        
+        return jsonify({
+            "status": "success" if success else "error",
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        print(f"Erreur webhook: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def format_message(raw_msg, data):
+    """Transforme le message brut en message stylé"""
+    
+    # Détection automatique du type
+    if "LONG" in raw_msg.upper():
+        emoji = "🟢"
+        direction = "LONG"
+    elif "SHORT" in raw_msg.upper():
+        emoji = "🔴"
+        direction = "SHORT"
+    else:
+        emoji = "⚪"
+        direction = "SIGNAL"
+    
+    # Extraction des valeurs depuis data ou message brut
+    ticker = data.get('ticker', 'BTCUSDT')
+    price = data.get('price', 'N/A')
+    entry = data.get('entry', price)
+    sl = data.get('sl', 'N/A')
+    tp1 = data.get('tp1', 'N/A')
+    tp2 = data.get('tp2', 'N/A')
+    tp3 = data.get('tp3', 'N/A')
+    reason = data.get('reason', 'Setup technique')
+    strategy = data.get('strategy', 'Stratégie personnalisée')
+    
+    # Calcul du R:R (Risk/Reward)
+    try:
+        entry_f = float(entry)
+        sl_f = float(sl)
+        tp1_f = float(tp1)
+        risk = abs(entry_f - sl_f)
+        reward = abs(tp1_f - entry_f)
+        rr = reward / risk if risk > 0 else 0
+        rr_text = f"1:{rr:.1f}"
+    except:
+        rr_text = "N/A"
+    
+    # Construction du message final
+    msg = f"""{emoji} <b>{direction} ALERT</b>
+
+📊 <b>Pair:</b> {ticker}
+💰 <b>Prix:</b> {price}
+
+━━━━━━━━━━━━━━━━━━━━
+🎯 <b>ENTRÉE:</b> <code>{entry}</code>
+🛑 <b>STOP LOSS:</b> <code>{sl}</code>
+✅ <b>TP1:</b> <code>{tp1}</code>
+✅ <b>TP2:</b> <code>{tp2}</code>
+✅ <b>TP3:</b> <code>{tp3}</code>
+━━━━━━━━━━━━━━━━━━━━
+
+📈 <b>Risk/Reward:</b> {rr_text}
+🧠 <b>Raison:</b> {reason}
+📋 <b>Stratégie:</b> {strategy}
+
+⏰ <i>{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</i>
+#{ticker.replace('/', '').replace('-', '')} #Trading"""
+    
+    return msg
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Vérifie que le serveur est vivant"""
+    return jsonify({
+        "status": "alive",
+        "bot_configured": BOT_TOKEN != "TON_TOKEN_PAR_DEFAUT"
+    }), 200
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
